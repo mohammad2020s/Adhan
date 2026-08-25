@@ -247,10 +247,11 @@ def index():
                                       cities=SAUDI_CITIES,
                                       selected_city=selected_city_en)
     except Exception as e:
-        return f"<h2 style='color:red; text-align:center; padding: 50px;'>حدث خطأ في الاتصال بالخادم.</h2>"
+        return f"<h2 style='color:red; text-align:center; padding: 50px;'>حدث خطأ في الاتصال بالخادم.</h2>"from datetime import datetime
+import pytz # تأكد أن هذه المكتبة موجودة أو استوردها
+
 @app.route('/shortcut')
 def shortcut_api():
-    # هذا الرابط مخصص فقط لاختصارات الآيفون
     city = request.args.get('city', 'Shaqra')
     url = f"http://api.aladhan.com/v1/timingsByCity?city={city}&country=Saudi Arabia&method=4"
     
@@ -265,7 +266,9 @@ def shortcut_api():
             "العشاء": raw_timings["Isha"]
         }
         
-        now = datetime.now()
+        # ضبط الوقت بناءً على توقيت السعودية
+        saudi_tz = pytz.timezone('Asia/Riyadh')
+        now = datetime.now(saudi_tz)
         current_time_str = now.strftime("%H:%M")
         
         next_prayer = "الفجر"
@@ -279,19 +282,18 @@ def shortcut_api():
                 break
                 
         # حساب الوقت المتبقي
-        now_dt = now
+        now_dt = now.replace(tzinfo=None)
         p_dt = datetime.strptime(next_time_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
         
-        if p_dt < now_dt: # إذا انتهت صلوات اليوم
+        if p_dt < now_dt: # إذا انتهت صلوات اليوم، فالصلاة القادمة هي الفجر اليوم التالي
             p_dt = p_dt.replace(day=now.day + 1)
             
         diff = p_dt - now_dt
         hours, remainder = divmod(diff.seconds, 3600)
         minutes, _ = divmod(remainder, 60)
         
-        # النص الذي سيقرأه الآيفون
-        return f"🕌 الصلاة القادمة: {next_prayer}\n⏳ الوقت المتبقي: {hours} ساعة و {minutes} دقيقة"
-    except:
-        return "حدث خطأ في جلب البيانات"
+        return f"🕌 الصلاة القادمة ({city}): {next_prayer}\n⏳ الوقت المتبقي: {hours} ساعة و {minutes} دقيقة"
+    except Exception as e:
+        return f"حدث خطأ: {str(e)}"
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
