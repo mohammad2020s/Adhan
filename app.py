@@ -1,8 +1,23 @@
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request
 import requests
 from datetime import datetime
 
 app = Flask(__name__)
+
+# قائمة المدن المتاحة (الاسم بالعربي : الاسم بالإنجليزي للـ API)
+SAUDI_CITIES = {
+    "الرياض": "Riyadh",
+    "شقراء": "Shaqra",
+    "مكة المكرمة": "Makkah",
+    "المدينة المنورة": "Madinah",
+    "جدة": "Jeddah",
+    "الدمام": "Dammam",
+    "بريدة": "Buraidah",
+    "تبوك": "Tabuk",
+    "أبها": "Abha",
+    "الطائف": "Taif",
+    "حائل": "Hail"
+}
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -31,24 +46,51 @@ HTML_TEMPLATE = """
             align-items: center;
         }
         .header { text-align: center; margin-bottom: 20px; }
-        .header h1 { color: var(--text-main); font-size: 24px; margin-bottom: 5px; }
-        .header p { color: var(--text-muted); font-size: 14px; margin-top: 0; }
+        .header h1 { color: var(--text-main); font-size: 26px; margin-bottom: 15px; }
+        
+        /* تصميم قائمة اختيار المدينة */
+        .city-form { margin-bottom: 25px; }
+        .city-select {
+            background-color: var(--card-bg);
+            color: var(--text-main);
+            border: 2px solid #334155;
+            padding: 10px 20px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-family: inherit;
+            font-weight: bold;
+            outline: none;
+            cursor: pointer;
+            width: 250px;
+            text-align: center;
+            appearance: none; /* إخفاء سهم المتصفح الافتراضي */
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: left 15px center;
+            background-size: 18px;
+            transition: all 0.3s ease;
+        }
+        .city-select:hover, .city-select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
         
         /* تصميم العداد التنازلي */
         .countdown-container {
             background: linear-gradient(145deg, #1e293b, #0f172a);
             border: 1px solid #334155;
             border-radius: 20px;
-            padding: 25px;
+            padding: 20px;
             text-align: center;
             width: 100%;
-            max-width: 340px;
-            margin-bottom: 30px;
+            max-width: 320px;
+            margin-bottom: 25px;
             box-shadow: 0 10px 25px rgba(0,0,0,0.5);
         }
-        .countdown-title { color: var(--text-muted); font-size: 16px; margin-bottom: 10px; }
+        .countdown-title { color: var(--text-muted); font-size: 16px; margin-bottom: 5px; }
         .countdown-timer { font-size: 42px; font-weight: bold; color: var(--accent); letter-spacing: 2px; }
-        .next-prayer-name { font-size: 22px; color: #fff; margin-top: 5px; font-weight: bold; }
+        .next-prayer-name { font-size: 22px; color: #fff; font-weight: bold; }
 
         /* تصميم كروت الصلاة */
         .prayers-list { width: 100%; max-width: 360px; }
@@ -65,7 +107,7 @@ HTML_TEMPLATE = """
             transition: all 0.3s ease;
             border: 1px solid transparent;
         }
-        .prayer-card span:last-child { color: var(--text-muted); font-size: 18px; }
+        .prayer-card span:last-child { color: var(--text-muted); font-size: 18px; direction: ltr; }
         
         /* تأثير الصلاة القادمة */
         .prayer-card.active {
@@ -83,7 +125,17 @@ HTML_TEMPLATE = """
 
     <div class="header">
         <h1>مواقيت الصلاة</h1>
-        <p>مدينة الرياض</p>
+        
+        <!-- القائمة المنسدلة لاختيار المدينة -->
+        <form method="GET" action="/" id="city-form" class="city-form">
+            <select name="city" class="city-select" onchange="document.getElementById('city-form').submit();">
+                {% for ar_name, en_name in cities.items() %}
+                    <option value="{{ en_name }}" {% if selected_city == en_name %}selected{% endif %}>
+                        {{ ar_name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </form>
     </div>
 
     <!-- العداد التنازلي -->
@@ -97,7 +149,7 @@ HTML_TEMPLATE = """
         {% for name, time_12 in timings_12.items() %}
         <div class="prayer-card" id="card-{{ name }}">
             <span>{{ name }}</span>
-            <span dir="ltr">{{ time_12 }}</span>
+            <span>{{ time_12 }}</span>
         </div>
         {% endfor %}
     </div>
@@ -105,7 +157,6 @@ HTML_TEMPLATE = """
     <div class="footer">تم البرمجة باحترافية | Pro Version</div>
 
     <script>
-        // استيراد الأوقات بنظام 24 ساعة من بايثون لاستخدامها في الحسابات
         const timings24 = {{ timings_24 | tojson }};
         
         function updateCountdown() {
@@ -116,10 +167,9 @@ HTML_TEMPLATE = """
             const currentTimeInSeconds = (currentHours * 3600) + (currentMinutes * 60) + currentSeconds;
 
             let nextPrayerName = "الفجر";
-            let nextPrayerTimeInSeconds = 24 * 3600; // افتراضياً لليوم التالي
+            let nextPrayerTimeInSeconds = 24 * 3600;
             let found = false;
 
-            // البحث عن الصلاة القادمة
             for (const [name, time] of Object.entries(timings24)) {
                 const [h, m] = time.split(':').map(Number);
                 const prayerSeconds = (h * 3600) + (m * 60);
@@ -134,7 +184,6 @@ HTML_TEMPLATE = """
 
             let diff;
             if (!found) {
-                // إذا انتهت صلوات اليوم، نحسب الوقت حتى فجر اليوم التالي
                 const [fajrH, fajrM] = timings24["الفجر"].split(':').map(Number);
                 const fajrSeconds = (fajrH * 3600) + (fajrM * 60);
                 diff = ((24 * 3600) - currentTimeInSeconds) + fajrSeconds;
@@ -143,27 +192,22 @@ HTML_TEMPLATE = """
                 diff = nextPrayerTimeInSeconds - currentTimeInSeconds;
             }
 
-            // تحويل الفارق لـ ساعات، دقائق، ثواني
             const h = Math.floor(diff / 3600);
             const m = Math.floor((diff % 3600) / 60);
             const s = diff % 60;
 
-            // تنسيق الأرقام لتكون بصيغة 00:00:00
             const formatNum = (num) => num < 10 ? '0' + num : num;
             
-            // تحديث النصوص في الواجهة
             document.getElementById('timer').innerText = `${formatNum(h)}:${formatNum(m)}:${formatNum(s)}`;
             document.getElementById('next-name').innerText = nextPrayerName;
 
-            // تمييز كرت الصلاة القادمة (إزالة التمييز عن الكل ثم إضافته للجديد)
             document.querySelectorAll('.prayer-card').forEach(card => card.classList.remove('active'));
             const activeCard = document.getElementById('card-' + nextPrayerName);
             if(activeCard) activeCard.classList.add('active');
         }
 
-        // تحديث العداد كل ثانية
         setInterval(updateCountdown, 1000);
-        updateCountdown(); // تشغيل فوري عند فتح الصفحة
+        updateCountdown();
     </script>
 </body>
 </html>
@@ -171,7 +215,10 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    url = "http://api.aladhan.com/v1/timingsByCity?city=Riyadh&country=Saudi Arabia&method=4"
+    # استلام المدينة من الرابط، وإذا لم توجد نضع الرياض كافتراضي
+    selected_city_en = request.args.get('city', 'Riyadh')
+    
+    url = f"http://api.aladhan.com/v1/timingsByCity?city={selected_city_en}&country=Saudi Arabia&method=4"
     try:
         res = requests.get(url).json()
         raw_timings = res["data"]["timings"]
@@ -184,21 +231,21 @@ def index():
         
         for en_name, ar_name in zip(prayers, arabic_names):
             time_24 = raw_timings[en_name]
-            # حفظ وقت 24 ساعة للعمليات الحسابية في الجافاسكربت
             timings_24[ar_name] = time_24
             
-            # تحويل الوقت لصيغة 12 ساعة (ص/م) للعرض الاحترافي
             t_obj = datetime.strptime(time_24, "%H:%M")
             formatted_time = t_obj.strftime("%I:%M %p")
-            # استبدال AM و PM بالعربي
             formatted_time = formatted_time.replace("AM", "ص").replace("PM", "م")
-            # إزالة الصفر الذي يسبق الساعة إن وجد (مثلاً 03 تصير 3)
             if formatted_time.startswith("0"):
                 formatted_time = formatted_time[1:]
                 
             timings_12[ar_name] = formatted_time
             
-        return render_template_string(HTML_TEMPLATE, timings_12=timings_12, timings_24=timings_24)
+        return render_template_string(HTML_TEMPLATE, 
+                                      timings_12=timings_12, 
+                                      timings_24=timings_24,
+                                      cities=SAUDI_CITIES,
+                                      selected_city=selected_city_en)
     except Exception as e:
         return f"<h2 style='color:red; text-align:center; padding: 50px;'>حدث خطأ في الاتصال بالخادم.</h2>"
 
