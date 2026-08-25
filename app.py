@@ -251,7 +251,7 @@ def index():
 @app.route('/shortcut')
 def shortcut_api():
     # هذا الرابط مخصص فقط لاختصارات الآيفون
-    city = request.args.get('city', 'Riyadh')
+    city = request.args.get('city', 'Shaqra')
     url = f"http://api.aladhan.com/v1/timingsByCity?city={city}&country=Saudi Arabia&method=4"
     
     try:
