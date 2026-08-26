@@ -1,10 +1,9 @@
 from flask import Flask, render_template_string, request
 import requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 
-# قائمة المدن المتاحة (الاسم بالعربي : الاسم بالإنجليزي للـ API)
 SAUDI_CITIES = {
     "الرياض": "Riyadh",
     "شقراء": "Shaqra",
@@ -48,7 +47,6 @@ HTML_TEMPLATE = """
         .header { text-align: center; margin-bottom: 20px; }
         .header h1 { color: var(--text-main); font-size: 26px; margin-bottom: 15px; }
         
-        /* تصميم قائمة اختيار المدينة */
         .city-form { margin-bottom: 25px; }
         .city-select {
             background-color: var(--card-bg);
@@ -63,7 +61,7 @@ HTML_TEMPLATE = """
             cursor: pointer;
             width: 250px;
             text-align: center;
-            appearance: none; /* إخفاء سهم المتصفح الافتراضي */
+            appearance: none;
             -webkit-appearance: none;
             background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
             background-repeat: no-repeat;
@@ -76,7 +74,6 @@ HTML_TEMPLATE = """
             box-shadow: 0 0 10px var(--accent-glow);
         }
         
-        /* تصميم العداد التنازلي */
         .countdown-container {
             background: linear-gradient(145deg, #1e293b, #0f172a);
             border: 1px solid #334155;
@@ -92,7 +89,6 @@ HTML_TEMPLATE = """
         .countdown-timer { font-size: 42px; font-weight: bold; color: var(--accent); letter-spacing: 2px; }
         .next-prayer-name { font-size: 22px; color: #fff; font-weight: bold; }
 
-        /* تصميم كروت الصلاة */
         .prayers-list { width: 100%; max-width: 360px; }
         .prayer-card {
             background-color: var(--card-bg);
@@ -109,7 +105,6 @@ HTML_TEMPLATE = """
         }
         .prayer-card span:last-child { color: var(--text-muted); font-size: 18px; direction: ltr; }
         
-        /* تأثير الصلاة القادمة */
         .prayer-card.active {
             border-color: var(--accent);
             box-shadow: 0 0 15px var(--accent-glow);
@@ -125,8 +120,6 @@ HTML_TEMPLATE = """
 
     <div class="header">
         <h1>مواقيت الصلاة</h1>
-        
-        <!-- القائمة المنسدلة لاختيار المدينة -->
         <form method="GET" action="/" id="city-form" class="city-form">
             <select name="city" class="city-select" onchange="document.getElementById('city-form').submit();">
                 {% for ar_name, en_name in cities.items() %}
@@ -138,13 +131,11 @@ HTML_TEMPLATE = """
         </form>
     </div>
 
-    <!-- العداد التنازلي -->
     <div class="countdown-container">
         <div class="countdown-title">متبقي على أذان <span id="next-name" class="next-prayer-name">...</span></div>
         <div id="timer" class="countdown-timer">00:00:00</div>
     </div>
 
-    <!-- قائمة الصلوات -->
     <div class="prayers-list">
         {% for name, time_12 in timings_12.items() %}
         <div class="prayer-card" id="card-{{ name }}">
@@ -215,9 +206,7 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    # استلام المدينة من الرابط، وإذا لم توجد نضع الرياض كافتراضي
-    selected_city_en = request.args.get('city', 'Riyadh')
-    
+    selected_city_en = request.args.get('city', 'Shaqra')
     url = f"http://api.aladhan.com/v1/timingsByCity?city={selected_city_en}&country=Saudi Arabia&method=4"
     try:
         res = requests.get(url).json()
@@ -234,8 +223,7 @@ def index():
             timings_24[ar_name] = time_24
             
             t_obj = datetime.strptime(time_24, "%H:%M")
-            formatted_time = t_obj.strftime("%I:%M %p")
-            formatted_time = formatted_time.replace("AM", "ص").replace("PM", "م")
+            formatted_time = t_obj.strftime("%I:%M %p").replace("AM", "ص").replace("PM", "م")
             if formatted_time.startswith("0"):
                 formatted_time = formatted_time[1:]
                 
@@ -247,8 +235,7 @@ def index():
                                       cities=SAUDI_CITIES,
                                       selected_city=selected_city_en)
     except Exception as e:
-        return f"<h2 style='color:red; text-align:center; padding: 50px;'>حدث خطأ في الاتصال بالخادم.</h2>"from datetime import datetime
-import pytz # تأكد أن هذه المكتبة موجودة أو استوردها
+        return f"<h2 style='color:red; text-align:center; padding: 50px;'>حدث خطأ في الاتصال بالخادم.</h2>"
 
 @app.route('/shortcut')
 def shortcut_api():
@@ -258,42 +245,46 @@ def shortcut_api():
     try:
         res = requests.get(url).json()
         raw_timings = res["data"]["timings"]
-        prayers = {
-            "الفجر": raw_timings["Fajr"],
-            "الظهر": raw_timings["Dhuhr"],
-            "العصر": raw_timings["Asr"],
-            "المغرب": raw_timings["Maghrib"],
-            "العشاء": raw_timings["Isha"]
-        }
         
-        # ضبط الوقت بناءً على توقيت السعودية
-        saudi_tz = pytz.timezone('Asia/Riyadh')
+        prayers = [
+            ("الفجر", raw_timings["Fajr"]),
+            ("الظهر", raw_timings["Dhuhr"]),
+            ("العصر", raw_timings["Asr"]),
+            ("المغرب", raw_timings["Maghrib"]),
+            ("العشاء", raw_timings["Isha"])
+        ]
+        
+        # ضبط التوقيت الافتراضي على السعودية (GMT+3)
+        saudi_tz = timezone(timedelta(hours=3))
         now = datetime.now(saudi_tz)
-        current_time_str = now.strftime("%H:%M")
+        current_minutes = now.hour * 60 + now.minute
         
-        next_prayer = "الفجر"
-        next_time_str = prayers["الفجر"]
-        
-        # البحث عن الصلاة القادمة
-        for name, p_time in prayers.items():
-            if p_time > current_time_str:
-                next_prayer = name
-                next_time_str = p_time
+        next_prayer_name = prayers[0][0]
+        next_prayer_time = prayers[0][1]
+        found = False
+
+        for name, p_time in prayers:
+            ph, pm = map(int, p_time.split(':'))
+            prayer_mins = ph * 60 + pm
+            if prayer_mins > current_minutes:
+                next_prayer_name = name
+                next_prayer_time = p_time
+                target_mins = prayer_mins
+                found = True
                 break
-                
-        # حساب الوقت المتبقي
-        now_dt = now.replace(tzinfo=None)
-        p_dt = datetime.strptime(next_time_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
+
+        if not found:
+            # إذا انتهت صلوات اليوم، الصلاة القادمة هي الفجر
+            ph, pm = map(int, prayers[0][1].split(':'))
+            target_mins = (24 * 60) + (ph * 60 + pm)
+
+        diff_mins = target_mins - current_minutes
+        hours = diff_mins // 60
+        minutes = diff_mins % 60
         
-        if p_dt < now_dt: # إذا انتهت صلوات اليوم، فالصلاة القادمة هي الفجر اليوم التالي
-            p_dt = p_dt.replace(day=now.day + 1)
-            
-        diff = p_dt - now_dt
-        hours, remainder = divmod(diff.seconds, 3600)
-        minutes, _ = divmod(remainder, 60)
-        
-        return f"🕌 الصلاة القادمة ({city}): {next_prayer}\n⏳ الوقت المتبقي: {hours} ساعة و {minutes} دقيقة"
+        return f"🕌 الصلاة القادمة: {next_prayer_name}\n⏳ المتبقي: {hours} ساعة و {minutes} دقيقة"
     except Exception as e:
-        return f"حدث خطأ: {str(e)}"
+        return f"خطأ في الحسابات: {str(e)}"
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
