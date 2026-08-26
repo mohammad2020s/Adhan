@@ -24,7 +24,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>مواقيت الصلاة | Pro</title>
+    <title>مواقيت الصلاة🕌</title>
     <style>
         :root {
             --bg-color: #0f172a;
